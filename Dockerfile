@@ -1,9 +1,10 @@
 FROM nginx:alpine
 
-# Copy all files from 'websites' folder to nginx html folder
+# Copy website files
 COPY websites/ /usr/share/nginx/html
 
-# Fix permissions
-RUN chmod -R 644 /usr/share/nginx/html
+# Fix permissions and ownership for nginx
+RUN chmod -R 755 /usr/share/nginx/html \
+    && chown -R nginx:nginx /usr/share/nginx/html
 
 EXPOSE 80
