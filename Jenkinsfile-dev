@@ -2,51 +2,44 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME = "for-docker-app"   // DEV container name
-        IMAGE = "for-docker-app:dev"  // DEV Docker image
-        PORT = "8081"                 // DEV port
+        APP_NAME = "for-docker-app"
+        IMAGE    = "for-docker-app:dev"
+        PORT     = "8081"
     }
 
     stages {
-
         stage('Checkout') {
             steps {
-                git branch: 'docker-dev',  
-                    url: 'https://github.com/flutterdeveloper2025-tech/For_docker.git'
+                git branch: 'docker-dev', url: 'https://github.com/flutterdeveloper2025-tech/For_docker.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $IMAGE .'
+                sh "docker build --no-cache -t $IMAGE ."
             }
         }
 
         stage('Run Container') {
             steps {
-                sh '''
+                sh """
                 docker rm -f $APP_NAME || true
                 docker run -d --name $APP_NAME -p $PORT:80 $IMAGE
-                '''
+                """
             }
         }
 
         stage('Smoke Test') {
             steps {
-                sh '''
-                STATUS=$(curl -o /dev/null -s -w "%{http_code}" http://localhost:$PORT)
-                if [ "$STATUS" != "200" ]; then
-                    echo "❌ App not reachable"
+                sh """
+                STATUS=\$(curl -o /dev/null -s -w "%{http_code}" http://localhost:$PORT)
+                if [ "\$STATUS" != "200" ]; then
+                    echo '❌ App not reachable'
                     exit 1
                 fi
-                echo "✅ DEV App is running in Docker"
-                '''
+                echo '✅ App is running'
+                """
             }
         }
-    }
-
-    post {
-        success { echo "🎉 Docker DEV deployment successful" }
-        failure { echo "❌ Docker DEV deployment failed" }
     }
 }
