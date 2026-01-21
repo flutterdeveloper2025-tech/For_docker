@@ -1,6 +1,6 @@
 FROM nginx:alpine
 
-# Copy all files from repo root to nginx html folder
+# Copy only website folder
 COPY website/ /usr/share/nginx/html
 
 # Fix permissions
