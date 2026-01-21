@@ -1,7 +1,7 @@
 FROM nginx:alpine
 
-# Copy only website files
-COPY website/ /usr/share/nginx/html
+# Copy all files from repo root to nginx html folder
+COPY . /usr/share/nginx/html
 
 # Fix permissions
 RUN chmod -R 644 /usr/share/nginx/html
