@@ -2,9 +2,10 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME = "for-docker-app-prod"  // PROD container name
-        IMAGE = "for-docker-app:prod"     // PROD Docker image
-        PORT = "8082"                     // PROD port
+        APP_NAME   = "for-docker-app-prod"  // PROD container name
+        IMAGE      = "for-docker-app:prod"  // PROD Docker image
+        PORT       = "8082"                  // PROD port
+        PREV_IMAGE = ""                       // Previous image ID for rollback
     }
 
     stages {
@@ -24,7 +25,13 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                sh 'docker build -t $IMAGE .'
+                script {
+                    // Capture previous image ID for rollback
+                    env.PREV_IMAGE = sh(script: "docker images -q $IMAGE", returnStdout: true).trim()
+                    echo "Previous image ID: ${env.PREV_IMAGE}"
+                    // Build new image
+                    sh "docker build -t $IMAGE ."
+                }
             }
         }
 
@@ -39,20 +46,46 @@ pipeline {
 
         stage('Smoke Test') {
             steps {
-                sh '''
-                STATUS=$(curl -o /dev/null -s -w "%{http_code}" http://localhost:$PORT)
-                if [ "$STATUS" != "200" ]; then
-                    echo "❌ App not reachable"
-                    exit 1
-                fi
-                echo "✅ PROD App is running in Docker"
-                '''
+                script {
+                    def status = sh(script: "curl -o /dev/null -s -w \"%{http_code}\" http://localhost:$PORT", returnStdout: true).trim()
+                    if (status != "200") {
+                        error "❌ Smoke test failed! HTTP status: $status"
+                    } else {
+                        echo "✅ Smoke test passed"
+                    }
+                }
             }
         }
     }
 
     post {
-        success { echo "🎉 Docker PROD deployment successful" }
-        failure { echo "❌ Docker PROD deployment failed" }
+        failure {
+            echo "❌ PROD deployment failed – initiating rollback"
+
+            script {
+                if (env.PREV_IMAGE) {
+                    echo "🔄 Rolling back to previous image: ${env.PREV_IMAGE}"
+                    sh '''
+                    docker rm -f $APP_NAME || true
+                    docker run -d --name $APP_NAME -p $PORT:80 $PREV_IMAGE
+                    '''
+                } else {
+                    echo "⚠ No previous image found for rollback!"
+                }
+            }
+
+            // Email notification on failure
+            mail to: 'flutterdeveloper2025@gmail.com',
+                 subject: "Jenkins Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "Build failed. Check Jenkins console here: ${env.BUILD_URL}"
+        }
+
+        success {
+            echo "🎉 Docker PROD deployment successful"
+            // Email notification on success
+            mail to: 'flutterdeveloper2025@gmail.com',
+                 subject: "Jenkins Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: "Build succeeded. Check Jenkins console here: ${env.BUILD_URL}"
+        }
     }
 }
