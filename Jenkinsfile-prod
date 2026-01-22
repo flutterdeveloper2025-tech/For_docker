@@ -50,7 +50,7 @@ pipeline {
                 script {
                     try {
                         sh """
-                        STATUS=\$(curl -o /dev/null -s -w "%{http_code}" http://localhost:$PORT)
+                        STATUS=\$(curl -o /dev/null -s -w "%{http_code}" http://localhost:9091)
                         if [ "\$STATUS" != "200" ]; then
                             echo "❌ Smoke test failed, HTTP \$STATUS"
                             exit 1
