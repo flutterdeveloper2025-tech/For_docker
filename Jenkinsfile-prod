@@ -2,18 +2,17 @@ pipeline {
     agent any
 
     environment {
-        APP_NAME   = "for-docker-app-prod"  // PROD container name
-        IMAGE      = "for-docker-app:prod"  // PROD Docker image
-        PORT       = "8082"                  // PROD port
-        PREV_IMAGE = ""                       // Previous image ID for rollback
+        APP_NAME = "for-docker-app-prod"     // PROD container
+        IMAGE    = "for-docker-app:prod"     // Current image
+        BACKUP   = "for-docker-app:prod-last" // Last working image
+        PORT     = "8082"
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                git branch: 'main',  
-                    url: 'https://github.com/flutterdeveloper2025-tech/For_docker.git'
+                git branch: 'main', url: 'https://github.com/flutterdeveloper2025-tech/For_docker.git'
             }
         }
 
@@ -25,33 +24,46 @@ pipeline {
 
         stage('Build Docker Image') {
             steps {
-                script {
-                    // Capture previous image ID for rollback
-                    env.PREV_IMAGE = sh(script: "docker images -q $IMAGE", returnStdout: true).trim()
-                    echo "Previous image ID: ${env.PREV_IMAGE}"
-                    // Build new image
-                    sh "docker build -t $IMAGE ."
-                }
+                sh """
+                # Build new image
+                docker build -t $IMAGE .
+
+                # Tag current PROD image as backup before deploying
+                if docker image inspect $IMAGE >/dev/null 2>&1; then
+                    docker tag $IMAGE $BACKUP
+                fi
+                """
             }
         }
 
         stage('Run Container') {
             steps {
-                sh '''
+                sh """
                 docker rm -f $APP_NAME || true
                 docker run -d --name $APP_NAME -p $PORT:80 $IMAGE
-                '''
+                """
             }
         }
 
         stage('Smoke Test') {
             steps {
                 script {
-                    def status = sh(script: "curl -o /dev/null -s -w \"%{http_code}\" http://localhost:$PORT", returnStdout: true).trim()
-                    if (status != "200") {
-                        error "❌ Smoke test failed! HTTP status: $status"
-                    } else {
+                    try {
+                        sh """
+                        STATUS=\$(curl -o /dev/null -s -w "%{http_code}" http://localhost:$PORT)
+                        if [ "\$STATUS" != "200" ]; then
+                            echo "❌ Smoke test failed, HTTP \$STATUS"
+                            exit 1
+                        fi
                         echo "✅ Smoke test passed"
+                        """
+                    } catch (err) {
+                        echo "⚠️ Rolling back to last working image"
+                        sh """
+                        docker rm -f $APP_NAME || true
+                        docker run -d --name $APP_NAME -p $PORT:80 $BACKUP
+                        """
+                        error("❌ Deployment failed, rolled back to last working image")
                     }
                 }
             }
@@ -59,33 +71,11 @@ pipeline {
     }
 
     post {
-        failure {
-            echo "❌ PROD deployment failed – initiating rollback"
-
-            script {
-                if (env.PREV_IMAGE) {
-                    echo "🔄 Rolling back to previous image: ${env.PREV_IMAGE}"
-                    sh '''
-                    docker rm -f $APP_NAME || true
-                    docker run -d --name $APP_NAME -p $PORT:80 $PREV_IMAGE
-                    '''
-                } else {
-                    echo "⚠ No previous image found for rollback!"
-                }
-            }
-
-            // Email notification on failure
-            mail to: 'flutterdeveloper2025@gmail.com',
-                 subject: "Jenkins Build FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Build failed. Check Jenkins console here: ${env.BUILD_URL}"
-        }
-
         success {
             echo "🎉 Docker PROD deployment successful"
-            // Email notification on success
-            mail to: 'flutterdeveloper2025@gmail.com',
-                 subject: "Jenkins Build SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Build succeeded. Check Jenkins console here: ${env.BUILD_URL}"
+        }
+        failure {
+            echo "❌ Docker PROD deployment failed"
         }
     }
 }
